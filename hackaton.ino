@@ -1,5 +1,8 @@
 #include <LiquidCrystal.h>
+#include <Servo.h>
 
+// Definicja pinu, do którego podłączony jest pin sygnałowy serwa.
+const int servoPin = 9; // Pin PWM
 // Definicja pinów podłączenia czujnika HC-SR04
 const int trigPin = 7; 
 const int echoPin = 6; 
@@ -21,7 +24,8 @@ enum BinState {
 
 // Zmienna przechowująca OSTATNIO WYŚWIETLONY stan
 BinState previousState = STATE_ERROR; 
-
+// Utworzenie obiektu serwomechanizmu
+Servo myservo; 
 // Definicja niestandardowego znaku PEŁNEGO BLOKU (indeks 0)
 byte pelny_blok[8] = { B11111, B11111, B11111, B11111, B11111, B11111, B11111, B11111 };
 
@@ -30,6 +34,11 @@ const int rs = 12, en = 11, d4 = 5, d5 = 4, d6 = 3, d7 = 2;
 LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
 
 void setup() {
+    // Przypisanie obiektu serwa do pinu
+  myservo.attach(servoPin);
+  
+  // Ustawienie początkowej pozycji (0 stopni)
+  myservo.write(90);
   lcd.begin(16, 2);
   pinMode(trigPin, OUTPUT);
   pinMode(echoPin, INPUT);
@@ -46,6 +55,21 @@ void setup() {
   lcd.print("Trash level meter");
   delay(2000);
   lcd.clear(); // Wyczyść po starcie
+}
+void move_servo()
+{
+    Serial.print("Przesuwam do: 30");
+  myservo.write(30);
+  delay(1000);
+  Serial.print("Przesuwam do: 0");
+  myservo.write(90);
+  delay(1000);
+  Serial.print("Przesuwam do: 150");
+  myservo.write(150);
+  delay(1000);
+  Serial.print("Przesuwam do: 0");
+  myservo.write(90);
+  delay(1000);
 }
 
 // Funkcja do czyszczenia całego wiersza
