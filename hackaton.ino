@@ -10,6 +10,7 @@ SoftwareSerial espSerial(A2, A3);
 
 // Piny
 const int servoPin = 10; 
+int sequence=0;
 
 // --- Czujnik 1: Wysokość śmieci ---
 const int trigPin_height = 7; 
@@ -19,7 +20,7 @@ const int bin_height = 30; // Wysokość pojemnik a w cm
 // --- Czujnik 2: Wykrywanie obecności na pokrywie ---
 const int trigPin_lid = 8; // Nowy pin Trigger dla czujnika pokrywy
 const int echoPin_lid = 9; // Nowy pin Echo dla czujnika pokrywy
-const int LID_TRIGGER_DISTANCE = 6; // Maksymalna odległość w cm, przy której uznajemy, że coś leży na pokrywie
+const int LID_TRIGGER_DISTANCE = 7; // Maksymalna odległość w cm, przy której uznajemy, że coś leży na pokrywie
 
 // Piny LCD (Zgodnie z Twoim kodem: RS=12, EN=8)
 const int rs = 12, en = 11, d4 = 5, d5 = 4, d6 = 3, d7 = 2;
@@ -115,13 +116,21 @@ void loop() {
         // Wykryto obiekt leżący na pokrywie/przed czujnikiem (np. smieć/ręka)
         Serial.println("DETECTED! Otwieram pokrywę (180 deg).");
         Serial.println(lid_distanceCm);
-        for(int i=90;i<=160;i++)
+        if (sequence==0)
         {
-            myservo.write(i);
-            delay(10);
+          myservo.write(160);  
+        }else if (sequence==1)
+        {
+          myservo.write(160);  
+        }else if (sequence==2)
+        {
+            myservo.write(30); 
+            sequence=-1;
         }
-        //myservo.write(150); // Ustaw serwo w pozycji OTWARTEJ
-        IS_TILT=1;      
+        
+        IS_TILT=1; 
+        sequence++;     
+        
     } else {
         // Brak wykrycia (serwo domyślnie wraca do zamknięcia)
         myservo.write(90); // Ustaw serwo w pozycji ZAMKNIĘTEJ/NEUTRALNEJ
