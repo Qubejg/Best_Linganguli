@@ -1,200 +1,140 @@
 #include <LiquidCrystal.h>
 #include <Servo.h>
+#include <SoftwareSerial.h>
 
-// Definicja pinu, do którego podłączony jest pin sygnałowy serwa.
-const int servoPin = 9; // Pin PWM
-// Definicja pinów podłączenia czujnika HC-SR04
-const int trigPin = 7; 
-const int echoPin = 6; 
+// ==========================================
+// KONFIGURACJA KOMUNIKACJI Z ESP32
+// RX = A2 (pusty), TX = A3 (TU PODŁĄCZ KABEL DO ESP32!)
+// ==========================================
+SoftwareSerial espSerial(A2, A3); 
 
-// Zmienne globalne
+// Piny
+const int servoPin = 9; 
+const int trigPin_height = 7; 
+const int echoPin_height = 6; 
+
+// Piny LCD (Zgodnie z Twoim kodem: RS=12, EN=8)
+const int rs = 12, en = 11, d4 = 5, d5 = 4, d6 = 3, d7 = 2;
+LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
+
+Servo myservo; 
 long duration; 
-int distanceCm; 
-const int bin_height = 30; // Wysokość pojemnika w cm (ustawione jako stała)
+int trash_distanceCm; 
+const int bin_height = 30; 
 
-// Użyjemy typu enum, aby zdefiniować i śledzić stany (więcej czytelności)
+// Znak pełnego bloku
+byte pelny_blok[8] = { B00100, B11111, B00000, B11111, B10101, B10101, B10101, B11111 };
+
 enum BinState {
     STATE_EMPTY,
     STATE_LOW,
     STATE_HALF_EMPTY,
     STATE_HALF_FULL,
     STATE_FULL,
-    STATE_ERROR // Dystans poza zakresem kosza
+    STATE_ERROR 
 };
 
-// Zmienna przechowująca OSTATNIO WYŚWIETLONY stan
 BinState previousState = STATE_ERROR; 
-// Utworzenie obiektu serwomechanizmu
-Servo myservo; 
-// Definicja niestandardowego znaku PEŁNEGO BLOKU (indeks 0)
-byte pelny_blok[8] = { B11111, B11111, B11111, B11111, B11111, B11111, B11111, B11111 };
-
-// Inicjalizacja biblioteki LCD
-const int rs = 12, en = 11, d4 = 5, d5 = 4, d6 = 3, d7 = 2;
-LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
 
 void setup() {
-    // Przypisanie obiektu serwa do pinu
+  // 1. Start komunikacji
+  Serial.begin(9600);      // USB do komputera
+  espSerial.begin(9600);   // Do ESP32 na pinie A3!
+
+  Serial.println("Start systemu...");
+
+  // 2. Konfiguracja urządzeń
   myservo.attach(servoPin);
-  
-  // Ustawienie początkowej pozycji (0 stopni)
   myservo.write(90);
-  lcd.begin(16, 2);
-  pinMode(trigPin, OUTPUT);
-  pinMode(echoPin, INPUT);
   
-  // Wgranie definicji pełnego bloku do CGRAM pod indeksem 0
+  pinMode(trigPin_height, OUTPUT);
+  pinMode(echoPin_height, INPUT);
+  
+  lcd.begin(16, 2);
   lcd.createChar(0, pelny_blok); 
   
-  // Inicjalizacja komunikacji szeregowej
-  Serial.begin(9600);
-  Serial.println("HC-SR04 czujnik gotowy.");
-  
-  // Początkowy komunikat
   lcd.setCursor(0, 0);
-  lcd.print("Trash level meter");
-  delay(2000);
-  lcd.clear(); // Wyczyść po starcie
-}
-void move_servo()
-{
-    Serial.print("Przesuwam do: 30");
-  myservo.write(30);
+  lcd.print("Trash Monitor");
   delay(1000);
-  Serial.print("Przesuwam do: 0");
-  myservo.write(90);
-  delay(1000);
-  Serial.print("Przesuwam do: 150");
-  myservo.write(150);
-  delay(1000);
-  Serial.print("Przesuwam do: 0");
-  myservo.write(90);
-  delay(1000);
+  lcd.clear(); 
 }
 
-// Funkcja do czyszczenia całego wiersza
+// --- Funkcje pomocnicze ---
 void clearRow(int row_num) {
   lcd.setCursor(0, row_num); 
-  for (int i = 0; i < 16; i++) {
-    lcd.print(" ");
-  }
+  for (int i = 0; i < 16; i++) { lcd.print(" "); }
 }
 
-// Funkcja do mierzenia odległości
-int getDistance() {
+void updateBar(int bars) {
+    clearRow(1);
+    lcd.setCursor(0, 1);
+    for(int i = 0; i < bars; i++) { lcd.write(byte(0)); }
+}
+
+int getDistance(int trigPin,int echoPin) {
   digitalWrite(trigPin, LOW);
   delayMicroseconds(2);
   digitalWrite(trigPin, HIGH);
   delayMicroseconds(10);
   digitalWrite(trigPin, LOW);
-  duration = pulseIn(echoPin, HIGH, 30000); // Dodanie timeout
-  
-  // Zwraca odległość w cm lub -1 jeśli odczyt jest niepoprawny
+  duration = pulseIn(echoPin, HIGH, 30000); 
   if (duration == 0) return -1; 
   return duration / 58;
 }
 
-// Funkcja do aktualizacji paska wypełnienia (tylko w drugim wierszu)
-void updateBar(int bars) {
-    clearRow(1); // Wyczyść tylko wiersz paska
-    lcd.setCursor(0, 1);
-    
-    // Wypisanie bloku na podstawie wyliczonej liczby
-    for(int i = 0; i < bars; i++) {
-        lcd.write(byte(0));
-    }
-}
-
 void loop() {
-    distanceCm = getDistance();
-    
-    // Użyj bin_height (30 cm) jako odległości do pustego dna kosza
-    // Poziom wypełnienia to bin_height - distanceCm
-    float filled = (float)bin_height - distanceCm;
-    
+    trash_distanceCm = getDistance(trigPin_height,echoPin_height);
+
+    // ==================================================
+    // 1. WYSYŁANIE DO ESP32 (Tego brakowało!)
+    // ==================================================
+    if (trash_distanceCm > 0 && trash_distanceCm < 100) {
+        // Wysyłamy liczbę i nową linię
+        espSerial.println(trash_distanceCm); 
+        
+        // Podgląd na komputerze
+        Serial.print("Wysylam do ESP: "); 
+        Serial.println(trash_distanceCm);
+    } else {
+        Serial.println("Blad odczytu - nie wysylam");
+    }
+
+    // ==================================================
+    // 2. LOGIKA LCD I STANÓW (Twoja stara logika)
+    // ==================================================
+    float filled = (float)bin_height - trash_distanceCm;
     BinState currentState;
-    int barsToShow = 0; // Ile bloków (0-16) ma być wyświetlonych
+    int barsToShow = 0; 
 
-    // --- 1. USTALENIE BIEŻĄCEGO STANU ---
-
-    if (distanceCm < 0 || distanceCm > bin_height * 1.5) { // Błąd odczytu lub poza koszem
+    if (trash_distanceCm < 0 || trash_distanceCm > bin_height * 1.5) { 
         currentState = STATE_ERROR;
-    } else if (distanceCm >= bin_height) { // Czujnik widzi dno lub jest poza koszem (pusty)
+    } else if (trash_distanceCm >= bin_height) { 
         currentState = STATE_EMPTY;
         barsToShow = 0;
-    } else { // W koszu jest coś, oblicz poziom
-        
-        
-        // Określenie stanu na podstawie procentu wypełnienia (dla wiadomości tekstowej)
-        if (filled <= bin_height * 0.3) {
-            currentState = STATE_LOW;
-        } else if (filled <= bin_height * 0.5) {
-            currentState = STATE_HALF_EMPTY;
-        } else if (filled <= bin_height * 0.7) {
-            currentState = STATE_HALF_FULL;
-        } else {
-            currentState = STATE_FULL;
-        }
+    } else { 
+        if (filled <= bin_height * 0.3) { currentState = STATE_LOW; } 
+        else if (filled <= bin_height * 0.5) { currentState = STATE_HALF_EMPTY; } 
+        else if (filled <= bin_height * 0.7) { currentState = STATE_HALF_FULL; } 
+        else { currentState = STATE_FULL; }
     }
 
-    // --- 2. AKTUALIZACJA WYŚWIETLACZA (TYLKO JEŚLI STAN SIĘ ZMIENIŁ) ---
-    
     if (currentState != previousState) {
-        
-        // Wyczyszczenie wiersza tekstu i wiersza paska
         clearRow(0);
         clearRow(1);
-        
         lcd.setCursor(0, 0);
         
         switch (currentState) {
-            case STATE_ERROR:
-                lcd.print("Brak odczytu!");
-                barsToShow=0;
-                break;
-            case STATE_EMPTY:
-                lcd.print("Pusto!");
-                barsToShow=0;
-                break;
-            case STATE_LOW:
-                lcd.print("Low level");
-                barsToShow=4;
-                break;
-            case STATE_HALF_EMPTY:
-                lcd.print("Half empty");
-                barsToShow=8;
-                break;
-            case STATE_HALF_FULL:
-                lcd.print("Half full");
-                barsToShow=12;
-                break;
-            case STATE_FULL:
-                lcd.print("full!!");
-                barsToShow=16;
-                break;
+            case STATE_ERROR: lcd.print("Blad!"); barsToShow=0; break;
+            case STATE_EMPTY: lcd.print("Pusto!"); barsToShow=0; break;
+            case STATE_LOW: lcd.print("Niski poziom"); barsToShow=4; break;
+            case STATE_HALF_EMPTY: lcd.print("Polowa pusta"); barsToShow=8; break;
+            case STATE_HALF_FULL: lcd.print("Polowa pelna"); barsToShow=12; break;
+            case STATE_FULL: lcd.print("PELNY!"); barsToShow=16; break;
         }
-        
-        // Ustawienie paska wypełnienia (zawsze, gdy stan się zmieni)
         updateBar(barsToShow);
-        
-        // Zapisz nowy stan
         previousState = currentState;
     }
     
-    // Mimo braku zmiany stanu, zawsze aktualizujemy sam pasek, 
-    // aby pokazać płynne przejścia w obrębie danego stanu (np. z 5 do 6 bloków)
-    // UWAGA: Lepsza optymalizacja to porównanie barsToShow z poprzednią wartością bars
-    // updateBar(barsToShow); 
-    
-    // Jeśli nie potrzebujesz płynnego paska (tylko 4 progi), zostaw aktualizację 
-    // paska TYLKO w bloku 'if (currentState != previousState)'
-    
-    Serial.print("Dystans: ");
-    Serial.print(distanceCm);
-    Serial.print(" cm | Wyp.: ");
-    Serial.print(filled);
-    Serial.print(" cm | Stan: ");
-    Serial.println(currentState);
-
-    delay(500); // Pomiary co pół sekundy
+    // Ważne: opóźnienie, żeby nie zalać ESP danymi
+    delay(1000); 
 }
